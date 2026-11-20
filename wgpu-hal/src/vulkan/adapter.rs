@@ -1224,6 +1224,11 @@ impl PhysicalDeviceProperties {
         // Require `VK_KHR_swapchain`
         extensions.push(khr::swapchain::NAME);
 
+        // Optional `VK_KHR_incremental_present`, for presenting with damage
+        if self.supports_extension(khr::incremental_present::NAME) {
+            extensions.push(khr::incremental_present::NAME);
+        }
+
         if self.device_api_version < vk::API_VERSION_1_1 {
             // Require `VK_KHR_maintenance1`
             extensions.push(khr::maintenance1::NAME);
@@ -2393,6 +2398,8 @@ impl super::Instance {
         let private_caps = super::PrivateCapabilities {
             image_view_usage: phd_capabilities.device_api_version >= vk::API_VERSION_1_1
                 || phd_capabilities.supports_extension(khr::maintenance2::NAME),
+            incremental_present: phd_capabilities
+                .supports_extension(khr::incremental_present::NAME),
             timeline_semaphores: match phd_features.timeline_semaphore {
                 Some(features) => features.timeline_semaphore == vk::TRUE,
                 None => phd_features

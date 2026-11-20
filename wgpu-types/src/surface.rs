@@ -968,6 +968,25 @@ pub struct SurfaceConfiguration<V> {
     pub desired_maximum_frame_latency: u32,
     /// Specifies how the alpha channel of the textures should be handled during compositing.
     pub alpha_mode: CompositeAlphaMode,
+    /// Keep the contents of each surface texture between presents.
+    ///
+    /// When set, a texture from [`Surface::get_current_texture`] still holds what it held
+    /// when it was last presented, and its [`SurfaceTexture::buffer_age`] says how many
+    /// presents ago that was, so a frame only needs to redraw what changed since then and
+    /// can present with [`Queue::present_with_damage`]. Where the backend cannot keep
+    /// contents, the age is `0` and the whole texture must be drawn, as without this flag.
+    ///
+    /// - DX12: Uses `DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL` instead of `FLIP_DISCARD`.
+    /// - Vulkan: Surface textures are not discarded when acquired.
+    /// - Metal, OpenGL, WebGPU: Ignored; the age is always `0`.
+    ///
+    /// Defaults to `false`.
+    ///
+    #[doc = link_to_wgpu_docs!(["`Surface::get_current_texture`"]: "struct.Surface.html#method.get_current_texture")]
+    #[doc = link_to_wgpu_docs!(["`SurfaceTexture::buffer_age`"]: "struct.SurfaceTexture.html#method.buffer_age")]
+    #[doc = link_to_wgpu_docs!(["`Queue::present_with_damage`"]: "struct.Queue.html#method.present_with_damage")]
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub preserve_contents: bool,
     /// Specifies what view formats will be allowed when calling `Texture::create_view` on the texture returned by `Surface::get_current_texture`.
     ///
     /// View formats of the same format as the texture are always allowed.
@@ -991,9 +1010,31 @@ impl<V: Clone> SurfaceConfiguration<V> {
             present_mode: self.present_mode,
             desired_maximum_frame_latency: self.desired_maximum_frame_latency,
             alpha_mode: self.alpha_mode,
+            preserve_contents: self.preserve_contents,
             view_formats: fun(&self.view_formats),
         }
     }
+}
+
+/// A rectangle of a surface texture that changed since it was last presented, in texels
+/// from the top-left corner.
+///
+/// Given to [`Queue::present_with_damage`]: the presentation engine may then update only
+/// these rectangles on screen.
+///
+#[doc = link_to_wgpu_docs!(["`Queue::present_with_damage`"]: "struct.Queue.html#method.present_with_damage")]
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub struct DamageRect {
+    /// Left edge.
+    pub x: u32,
+    /// Top edge.
+    pub y: u32,
+    /// Width.
+    pub width: u32,
+    /// Height.
+    pub height: u32,
 }
 
 /// Status of the received surface image.

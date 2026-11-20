@@ -1314,12 +1314,18 @@ pub trait Queue: WasmNotSendSync {
     ///   ([`submit`][s], [`present`][Queue::present],
     ///   [`wait_for_idle`][Queue::wait_for_idle]) on the same queue.
     ///
+    /// - `damage` lists what changed since `texture` was last presented. It is a hint the
+    ///   backend may pass on to the presentation engine; an empty slice means the whole
+    ///   texture. When it is not empty and the surface keeps its contents, every texel
+    ///   outside `damage` must be what it was when `texture` was last presented.
+    ///
     /// [d]: Api::Device
     /// [s]: Queue::submit
     unsafe fn present(
         &self,
         surface: &<Self::A as Api>::Surface,
         texture: <Self::A as Api>::SurfaceTexture,
+        damage: &[wgt::DamageRect],
     ) -> Result<(), SurfaceError>;
     /// Block until all previously submitted work on this queue has completed,
     /// including any pending presentations.
@@ -2170,6 +2176,10 @@ pub struct AcquiredSurfaceTexture<A: Api> {
     /// the surface properties exactly, but can still be used to present
     /// to the surface successfully.
     pub suboptimal: bool,
+    /// How many presents ago the texture's contents were presented, when the surface
+    /// keeps its contents ([`SurfaceConfiguration::preserve_contents`]): `1` for the latest
+    /// present. `0` when its contents are unknown.
+    pub age: u32,
 }
 
 /// An open connection to a device and a queue.
@@ -2739,6 +2749,9 @@ pub struct SurfaceConfiguration {
     /// Allows views of swapchain texture to have a different format
     /// than the texture does.
     pub view_formats: Vec<wgt::TextureFormat>,
+    /// Keep each surface texture's contents between presents and report its age
+    /// ([`AcquiredSurfaceTexture::age`]).
+    pub preserve_contents: bool,
 }
 
 #[derive(Debug, Clone)]

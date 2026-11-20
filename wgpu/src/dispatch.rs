@@ -263,6 +263,17 @@ pub trait QueueInterface: CommonTraits {
     fn compact_blas(&self, blas: &DispatchBlas) -> (Option<u64>, DispatchBlas);
 
     fn present(&self, detail: &DispatchSurfaceOutputDetail);
+
+    /// Presents like [`present`](Self::present), telling the presentation engine that only
+    /// `damage` changed. Backends that cannot pass damage on present normally.
+    fn present_with_damage(
+        &self,
+        detail: &DispatchSurfaceOutputDetail,
+        damage: &[crate::DamageRect],
+    ) {
+        let _ = damage;
+        self.present(detail);
+    }
 }
 
 pub trait ShaderModuleInterface: CommonTraits {
@@ -619,6 +630,11 @@ pub trait SurfaceInterface: CommonTraits {
 pub trait SurfaceOutputDetailInterface: CommonTraits {
     fn texture_discard(&self);
     fn texture_release(&self);
+
+    /// How many presents ago the texture's kept contents were presented; `0` when unknown.
+    fn buffer_age(&self) -> u32 {
+        0
+    }
 }
 
 pub trait QueueWriteBufferInterface: CommonTraits {

@@ -159,6 +159,9 @@ pub type ResolvedSurfaceOutput = SurfaceOutput<Arc<resource::Texture>>;
 pub struct SurfaceOutput<T = id::TextureId> {
     pub status: Status,
     pub texture: Option<T>,
+    /// How many presents ago the texture's kept contents were presented, or `0` when its
+    /// contents are undefined (see [`wgt::SurfaceConfiguration::preserve_contents`]).
+    pub age: u32,
 }
 
 impl Surface {
@@ -173,13 +176,15 @@ impl Surface {
         };
 
         let suf = self.raw(device.backend()).unwrap();
-        let (texture, status) = match unsafe {
+        let (texture, status, age) = match unsafe {
             suf.acquire_texture(
                 Some(core::time::Duration::from_millis(FRAME_TIMEOUT_MS as u64)),
                 device.fence.as_ref(),
             )
         } {
             Ok(ast) => {
+                // Kept contents are initialized and were left in the present state.
+                let age = if config.preserve_contents { ast.age } else { 0 };
                 let texture_desc = wgt::TextureDescriptor {
                     label: hal_label(
                         Some(alloc::borrow::Cow::Borrowed("<Surface Texture>")),
@@ -235,16 +240,19 @@ impl Surface {
                     resource::TextureClearMode::Surface {
                         clear_view: ManuallyDrop::new(clear_view),
                     },
-                    true,
+                    age == 0,
                 );
 
                 let texture = Arc::new(texture);
 
-                device
-                    .trackers
-                    .lock()
-                    .textures
-                    .insert_single(&texture, wgt::TextureUses::UNINITIALIZED);
+                device.trackers.lock().textures.insert_single(
+                    &texture,
+                    if age == 0 {
+                        wgt::TextureUses::UNINITIALIZED
+                    } else {
+                        wgt::TextureUses::PRESENT
+                    },
+                );
 
                 if present.acquired_texture.is_some() {
                     return Err(SurfaceError::AlreadyAcquired);
@@ -256,7 +264,7 @@ impl Surface {
                 } else {
                     Status::Good
                 };
-                (Some(texture), status)
+                (Some(texture), status, age)
             }
             Err(err) => (
                 None,
@@ -273,13 +281,18 @@ impl Surface {
                         Status::Lost
                     }
                 },
+                0,
             ),
         };
 
-        Ok(ResolvedSurfaceOutput { status, texture })
+        Ok(ResolvedSurfaceOutput {
+            status,
+            texture,
+            age,
+        })
     }
 
-    pub fn present(&self) -> Result<Status, SurfaceError> {
+    pub fn present(&self, damage: &[wgt::DamageRect]) -> Result<Status, SurfaceError> {
         profiling::scope!("Surface::present");
 
         let presentation = self.presentation.lock();
@@ -295,12 +308,16 @@ impl Surface {
             .ok_or(SurfaceError::Device(DeviceError::Lost))?;
         drop(presentation);
 
-        queue.present(self)
+        queue.present(self, damage)
     }
 }
 
 impl Queue {
-    pub fn present(&self, surface: &Surface) -> Result<Status, SurfaceError> {
+    pub fn present(
+        &self,
+        surface: &Surface,
+        damage: &[wgt::DamageRect],
+    ) -> Result<Status, SurfaceError> {
         profiling::scope!("Queue::present");
 
         let texture = {
@@ -353,7 +370,7 @@ impl Queue {
                 // other present calls. Locking command indices prevents submits which must increment the
                 // submission index, and by `write`ing prevents other present calls.
                 let _command_indices = device.command_indices.write();
-                unsafe { raw_queue.present(raw_surface, raw) }
+                unsafe { raw_queue.present(raw_surface, raw, damage) }
             }
             _ => unreachable!(),
         };
@@ -468,10 +485,21 @@ impl Global {
         Ok(SurfaceOutput {
             status,
             texture: texture_id,
+            age: output.age,
         })
     }
 
     pub fn surface_present(&self, surface_id: id::SurfaceId) -> Result<Status, SurfaceError> {
+        self.surface_present_with_damage(surface_id, &[])
+    }
+
+    /// Presents like [`Global::surface_present`], telling the presentation engine that only
+    /// `damage` changed since the texture was last presented (an empty slice: all of it).
+    pub fn surface_present_with_damage(
+        &self,
+        surface_id: id::SurfaceId,
+        damage: &[wgt::DamageRect],
+    ) -> Result<Status, SurfaceError> {
         let surface = self.surfaces.get(surface_id);
 
         #[cfg(feature = "trace")]
@@ -481,7 +509,7 @@ impl Global {
             }
         }
 
-        surface.present()
+        surface.present(damage)
     }
 
     pub fn surface_texture_discard(&self, surface_id: id::SurfaceId) -> Result<(), SurfaceError> {

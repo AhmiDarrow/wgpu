@@ -42,6 +42,13 @@ Bottom level categories:
 
 ## Unreleased
 
+### Added/New Features
+
+#### General
+
+- Present with damage. `SurfaceConfiguration::preserve_contents` keeps each surface texture's contents between presents, `SurfaceTexture::buffer_age` says how many presents ago they were shown, and `Queue::present_with_damage` presents with the rectangles that changed, so a frame redraws only what changed and the presentation engine updates only that on screen. DX12 uses `FLIP_SEQUENTIAL` and `Present1` dirty rectangles; Vulkan keeps acquired images and uses `VK_KHR_incremental_present` where available; Metal, GLES and WebGPU report age `0` and ignore the damage. Adding the configuration field and the `damage` argument to `hal::Queue::present` is a breaking change. By @AhmiDarrow in [#TBD](https://github.com/gfx-rs/wgpu/pull/TBD).
+
+
 ## v30.0.2 (2026-11-12)
 
 ### Bug Fixes

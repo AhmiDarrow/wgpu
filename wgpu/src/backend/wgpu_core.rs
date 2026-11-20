@@ -621,6 +621,7 @@ pub struct CoreSurfaceOutputDetail {
     context: ContextWgpuCore,
     surface_id: wgc::id::SurfaceId,
     error_sink: ErrorSink,
+    age: u32,
 }
 
 type ErrorSink = Arc<Mutex<ErrorSinkRaw>>;
@@ -2152,8 +2153,20 @@ impl dispatch::QueueInterface for CoreQueue {
     }
 
     fn present(&self, detail: &dispatch::DispatchSurfaceOutputDetail) {
+        self.present_with_damage(detail, &[]);
+    }
+
+    fn present_with_damage(
+        &self,
+        detail: &dispatch::DispatchSurfaceOutputDetail,
+        damage: &[crate::DamageRect],
+    ) {
         let detail = detail.as_core();
-        match self.context.0.surface_present(detail.surface_id) {
+        match self
+            .context
+            .0
+            .surface_present_with_damage(detail.surface_id, damage)
+        {
             Ok(_status) => (),
             Err(err) => {
                 self.context
@@ -3998,18 +4011,21 @@ impl dispatch::SurfaceInterface for CoreSurface {
             Arc::new(Mutex::new(ErrorSinkRaw::new()))
         };
 
-        let output_detail = CoreSurfaceOutputDetail {
+        let mut output_detail = CoreSurfaceOutputDetail {
             context: self.context.clone(),
             surface_id: self.id,
             error_sink: error_sink.clone(),
-        }
-        .into();
+            age: 0,
+        };
 
         match self.context.0.surface_get_current_texture(self.id, None) {
             Ok(wgc::present::SurfaceOutput {
                 status,
                 texture: texture_id,
+                age,
             }) => {
+                output_detail.age = age;
+                let output_detail = output_detail.into();
                 let data = texture_id
                     .map(|id| CoreTexture {
                         context: self.context.clone(),
@@ -4029,7 +4045,7 @@ impl dispatch::SurfaceInterface for CoreSurface {
                             err,
                             "Surface::get_current_texture_view",
                         );
-                        (None, crate::SurfaceStatus::Validation, output_detail)
+                        (None, crate::SurfaceStatus::Validation, output_detail.into())
                     }
                     None => self
                         .context
@@ -4047,6 +4063,10 @@ impl Drop for CoreSurface {
 }
 
 impl dispatch::SurfaceOutputDetailInterface for CoreSurfaceOutputDetail {
+    fn buffer_age(&self) -> u32 {
+        self.age
+    }
+
     fn texture_discard(&self) {
         match self.context.0.surface_texture_discard(self.surface_id) {
             Ok(_status) => (),

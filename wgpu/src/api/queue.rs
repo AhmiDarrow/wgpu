@@ -379,6 +379,25 @@ impl Queue {
         self.inner.present(&surface_texture.detail);
     }
 
+    /// Presents like [`Queue::present`], telling the presentation engine that only `damage`
+    /// changed since the texture was last presented, so it may update only those rectangles
+    /// on screen and save memory bandwidth and power. An empty slice means all of it.
+    ///
+    /// The texture must have been drawn in full where [`SurfaceTexture::buffer_age`] is `0`.
+    /// Where the age is `n`, texels outside `damage` must not be written: they hold the
+    /// frame presented `n` presents ago, so `damage` must cover everything that changed in
+    /// the last `n` frames.
+    ///
+    /// - DX12: `IDXGISwapChain1::Present1` with dirty rectangles, on surfaces configured with
+    ///   [`preserve_contents`](crate::SurfaceConfiguration::preserve_contents).
+    /// - Vulkan: `VkPresentRegionsKHR`, where `VK_KHR_incremental_present` is available.
+    /// - Metal, OpenGL, WebGPU: The damage is ignored.
+    pub fn present_with_damage(&self, mut surface_texture: SurfaceTexture, damage: &[DamageRect]) {
+        surface_texture.presented = true;
+        self.inner
+            .present_with_damage(&surface_texture.detail, damage);
+    }
+
     /// Compact a BLAS, it must have had [`Blas::prepare_compaction_async`] called on it and had the
     /// callback provided called.
     ///

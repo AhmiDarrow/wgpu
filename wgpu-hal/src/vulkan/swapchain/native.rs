@@ -288,6 +288,7 @@ impl Surface for NativeSurface {
             .map(|i| Arc::new(Mutex::new(SwapchainPresentSemaphores::new(i))))
             .collect::<Vec<_>>();
 
+        let image_count = images.len();
         Ok(Box::new(NativeSwapchain {
             raw,
             functor,
@@ -297,6 +298,8 @@ impl Surface for NativeSurface {
             config: config.clone(),
             acquire_semaphores,
             next_acquire_index: 0,
+            presents: 0,
+            last_presented: vec![0; image_count],
             present_semaphores,
             next_present_time: None,
         }))
@@ -365,6 +368,12 @@ pub(crate) struct NativeSwapchain {
     /// This must only be set if [`wgt::Features::VULKAN_GOOGLE_DISPLAY_TIMING`] is enabled, and
     /// so the VK_GOOGLE_display_timing extension is present.
     next_present_time: Option<vk::PresentTimeGOOGLE>,
+
+    /// Presents made with this swapchain.
+    presents: u64,
+    /// For each image, the value of [`presents`](Self::presents) after its latest present,
+    /// or `0` if it was never presented.
+    last_presented: Vec<u64>,
 }
 
 impl Drop for NativeSwapchain {
@@ -546,9 +555,16 @@ impl Swapchain for NativeSwapchain {
                 present_semaphores: present_semaphore_arc,
             }),
         };
+        let age = match self.last_presented.get(index as usize) {
+            Some(&last) if self.config.preserve_contents && last > 0 => {
+                u32::try_from(self.presents - last + 1).unwrap_or(0)
+            }
+            _ => 0,
+        };
         Ok(crate::AcquiredSurfaceTexture {
             texture,
             suboptimal,
+            age,
         })
     }
 
@@ -564,6 +580,7 @@ impl Swapchain for NativeSwapchain {
         &mut self,
         queue: &crate::vulkan::Queue,
         texture: crate::vulkan::SurfaceTexture,
+        damage: &[wgt::DamageRect],
     ) -> Result<(), crate::SurfaceError> {
         let metadata = texture
             .metadata
@@ -586,12 +603,43 @@ impl Swapchain for NativeSwapchain {
 
         drop(acquire_semaphore);
 
+        self.presents += 1;
+        if let Some(last) = self.last_presented.get_mut(texture.index as usize) {
+            *last = self.presents;
+        }
+
         let swapchains = [self.raw];
         let image_indices = [texture.index];
         let vk_info = vk::PresentInfoKHR::default()
             .swapchains(&swapchains)
             .image_indices(&image_indices)
             .wait_semaphores(&wait_semaphores);
+
+        let rectangles;
+        let regions;
+        let mut present_regions;
+        let vk_info = if self.device.private_caps.incremental_present && !damage.is_empty() {
+            rectangles = damage
+                .iter()
+                .map(|r| {
+                    vk::RectLayerKHR::default()
+                        .offset(vk::Offset2D {
+                            x: r.x.min(i32::MAX as u32) as i32,
+                            y: r.y.min(i32::MAX as u32) as i32,
+                        })
+                        .extent(vk::Extent2D {
+                            width: r.width,
+                            height: r.height,
+                        })
+                })
+                .collect::<Vec<_>>();
+            regions = [vk::PresentRegionKHR::default().rectangles(&rectangles)];
+            present_regions = vk::PresentRegionsKHR::default().regions(&regions);
+            // SAFETY: `incremental_present` is only set when VK_KHR_incremental_present is enabled.
+            vk_info.push_next(&mut present_regions)
+        } else {
+            vk_info
+        };
 
         let mut display_timing;
         let present_times;

@@ -85,6 +85,7 @@ pub(super) trait Swapchain: Send + Sync + 'static {
         &mut self,
         queue: &super::Queue,
         texture: crate::vulkan::SurfaceTexture,
+        damage: &[wgt::DamageRect],
     ) -> Result<(), crate::SurfaceError>;
 
     /// Allows downcasting to the concrete type.

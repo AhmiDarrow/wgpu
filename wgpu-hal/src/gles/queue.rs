@@ -1959,6 +1959,7 @@ impl crate::Queue for super::Queue {
         &self,
         surface: &super::Surface,
         texture: super::Texture,
+        _damage: &[wgt::DamageRect],
     ) -> Result<(), crate::SurfaceError> {
         unsafe { surface.present(texture, &self.shared.context) }
     }

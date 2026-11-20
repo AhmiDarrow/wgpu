@@ -340,6 +340,8 @@ struct RayTracingDeviceExtensionFunctions {
 #[derive(Clone, Debug)]
 struct PrivateCapabilities {
     image_view_usage: bool,
+    /// `VK_KHR_incremental_present` is enabled: presents can carry damage.
+    incremental_present: bool,
     timeline_semaphores: bool,
     texture_d24: bool,
     texture_d24_s8: bool,
@@ -1500,10 +1502,11 @@ impl crate::Queue for Queue {
         &self,
         surface: &Surface,
         texture: SurfaceTexture,
+        damage: &[wgt::DamageRect],
     ) -> Result<(), crate::SurfaceError> {
         let mut swapchain = surface.swapchain.write();
 
-        unsafe { swapchain.as_mut().unwrap().present(self, texture) }
+        unsafe { swapchain.as_mut().unwrap().present(self, texture, damage) }
     }
 
     unsafe fn get_timestamp_period(&self) -> f32 {

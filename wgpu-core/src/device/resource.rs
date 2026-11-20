@@ -5309,6 +5309,7 @@ impl Device {
                     *caps.maximum_frame_latency.end(),
                 );
                 let mut hal_config = hal::SurfaceConfiguration {
+                    preserve_contents: config.preserve_contents,
                     maximum_frame_latency,
                     present_mode: config.present_mode,
                     composite_alpha_mode: config.alpha_mode,

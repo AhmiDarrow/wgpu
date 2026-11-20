@@ -15,6 +15,8 @@ pub struct DynAcquiredSurfaceTexture {
     /// the surface properties exactly, but can still be used to present
     /// to the surface successfully.
     pub suboptimal: bool,
+    /// How many presents ago the texture's contents were presented; `0` when unknown.
+    pub age: u32,
 }
 
 pub trait DynSurface: DynResource {
@@ -58,10 +60,10 @@ impl<S: Surface + DynResource> DynSurface for S {
         let fence = fence.expect_downcast_ref();
         unsafe { S::acquire_texture(self, timeout, fence) }.map(|ast| {
             let texture = Box::new(ast.texture);
-            let suboptimal = ast.suboptimal;
             DynAcquiredSurfaceTexture {
                 texture,
-                suboptimal,
+                suboptimal: ast.suboptimal,
+                age: ast.age,
             }
         })
     }
